@@ -4,7 +4,11 @@ Sitio: https://toyorenault-cjd.pages.dev/
 
 ## Accesos
 
-El panel en `/panel.html` tiene tres usuarios públicos: `admin`, `vendedor` y `bodega`. Todos utilizan `demo123`. Son perfiles de demostración, no administradores de una empresa real. Cada inicio de sesión crea su propio espacio en el servidor durante dos horas. No hay clientes, inventarios ni documentos del taller CJD en esta base. Al salir o expirar el acceso no se recuperan los cambios; las sesiones vencidas se limpian al crear otras nuevas. No introducir datos reales ni tarifas confidenciales.
+El panel en `/panel.html` tiene seis perfiles públicos: `admin`, `gerente`, `vendedor`, `compras`, `bodega` y `contabilidad`. Todos utilizan `demo123`. Son perfiles de demostración, no cuentas personales de una empresa real. Cada inicio de sesión crea su propio espacio en el servidor durante dos horas. No hay clientes, inventarios ni documentos del taller CJD en esta base. Al salir o expirar el acceso no se recuperan los cambios; las sesiones vencidas se limpian al crear otras nuevas. No introducir datos reales ni tarifas confidenciales.
+
+Administración opera todos los módulos. Gerencia consulta sin modificar. Ventas gestiona CRM, cotizaciones, pedidos y seguimiento, sin costes ni emisión de ventas. Compras importa ofertas y prepara compras, sin recibir mercancía ni acceder al CRM. Bodega ajusta existencias y recibe compras, sin precios ni contactos de clientes. Contabilidad emite documentos internos y registra devoluciones, sin modificar CRM, compras ni precios. `Mi perfil y permisos` muestra las acciones y módulos de cada función. Se comprueban permisos en el servidor y se eliminan los campos restringidos antes de devolver datos, incluidas las respuestas a escrituras. Detalle en ROLES-TOYORENAULT.md.
+
+Cada sesión incluye una cotización, un pedido y una compra ficticios para probar las funciones sin depender de otra cuenta. Los seis perfiles no comparten sus sesiones demo. La validación ampliada cubre 192 comprobaciones, incluida la matriz de acciones permitidas y denegadas para los seis perfiles y la protección de campos.
 
 ## Funciones implementadas
 

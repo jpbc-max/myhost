@@ -1,7 +1,34 @@
 // TOYORENAULT demo backend. Public credentials never grant access to real company data.
 // Deploy as a Pages advanced-mode worker, binding ONLY toyorenault-demo as DB.
 const initialized = new WeakSet();
-const roles = {admin:'Administrador demo', vendedor:'Vendedor demo', bodega:'Bodega demo'};
+const roles = {admin:'Administración demo', gerente:'Gerencia demo', vendedor:'Ventas demo', compras:'Compras demo', bodega:'Bodega demo', contabilidad:'Contabilidad demo'};
+const capabilities = {
+ 'crm.write':{label:'Crear y editar clientes y oportunidades',roles:['admin','vendedor']},
+ 'task.write':{label:'Gestionar seguimiento comercial',roles:['admin','vendedor']},
+ 'catalog.write':{label:'Crear referencias y configurar precios',roles:['admin']},
+ 'stock.write':{label:'Ajustar existencias con motivo',roles:['admin','bodega']},
+ 'quote.write':{label:'Preparar cotizaciones',roles:['admin','vendedor']},
+ 'order.write':{label:'Convertir cotización en pedido',roles:['admin','vendedor']},
+ 'invoice.write':{label:'Emitir documentos internos de venta',roles:['admin','contabilidad']},
+ 'offers.write':{label:'Importar ofertas de proveedores',roles:['admin','compras']},
+ 'purchase.write':{label:'Preparar compras a proveedores',roles:['admin','compras']},
+ 'receipt.write':{label:'Registrar recepción de mercancía',roles:['admin','bodega']},
+ 'return.write':{label:'Registrar devoluciones de ventas',roles:['admin','contabilidad']},
+ 'cost.read':{label:'Consultar costes de compra',roles:['admin','gerente','compras']},
+ 'audit.read':{label:'Consultar la actividad del almacén',roles:['admin','gerente']}
+};
+const modules={overview:{label:'Resumen',roles:Object.keys(roles)},crm:{label:'Clientes y CRM',roles:['admin','gerente','vendedor']},documents:{label:'Documentos y pedidos',roles:['admin','gerente','vendedor','bodega','contabilidad']},stock:{label:'Inventario',roles:Object.keys(roles)},suppliers:{label:'Proveedores',roles:['admin','gerente','vendedor','compras','bodega']},purchases:{label:'Compras y recepción',roles:['admin','gerente','compras','bodega']},tasks:{label:'Seguimiento',roles:['admin','gerente','vendedor']},returns:{label:'Devoluciones',roles:['admin','gerente','contabilidad']},audit:{label:'Actividad',roles:['admin','gerente']},access:{label:'Mi perfil y permisos',roles:Object.keys(roles)}};
+const roleSummary={admin:'Configura y opera todos los módulos de esta sesión demo.',gerente:'Supervisa los módulos y los costes en modo consulta; no modifica registros.',vendedor:'Gestiona clientes, cotizaciones, pedidos y seguimientos; no ve costes ni emite ventas internas.',compras:'Compara costes, importa ofertas y prepara compras; no recibe mercancía ni accede al CRM.',bodega:'Controla existencias y recepciones; consulta pedidos sin datos de contacto ni importes.',contabilidad:'Consulta documentos, emite ventas internas y registra devoluciones; no modifica CRM, compras ni precios.'};
+const allowed=(s,p)=>capabilities[p]?.roles.includes(s.role)===true;
+const hasModule=(s,m)=>modules[m]?.roles.includes(s.role)===true;
+const profile=role=>({user:roles[role],role,summary:roleSummary[role],permissions:Object.keys(capabilities).filter(p=>allowed({role},p)),views:Object.keys(modules).filter(m=>hasModule({role},m))});
+function requirePermission(s,p){if(!allowed(s,p))fail(403,'Tu perfil no tiene permiso para esta acción.');}
+function visibleProduct(s,p){const result={...p};if(!allowed(s,'cost.read'))delete result.cost;if(s.role==='bodega'){delete result.price;delete result.tax;}return result;}
+function visibleDocument(s,d){
+ if(s.role==='bodega')return {id:d.id,version:d.version,number:d.number,type:d.type,status:d.status,at:d.at,client:{id:d.client.id,name:d.client.name},items:d.items.map(i=>({productId:i.productId,code:i.code,name:i.name,qty:i.qty,fulfillment:i.fulfillment})),demo:true};
+ return allowed(s,'cost.read')?d:{...d,items:d.items.map(({cost,...i})=>i)};
+}
+function visiblePurchase(s,p){if(s.role!=='bodega')return p;const {cost,total,...result}=p;return result;}
 const kinds = ['clients','leads','products','offers','documents','purchases','tasks','returns'];
 const stages = ['nuevo','contactado','cotizado','ganado','perdido'];
 const security = {'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin'};
@@ -28,7 +55,6 @@ const insert=(db,s,kind,data)=>stmt(db,'INSERT INTO demo_records(workspace,kind,
 const log=(db,s,event,id)=>insert(db,s,'audit',{id:uid(),event,record:id,role:s.role,at:now()});
 async function find(db,s,kind,id){const row=await stmt(db,'SELECT id,version,data FROM demo_records WHERE workspace=? AND kind=? AND id=?',s.workspace,kind,text(id,80)).first();if(!row)fail(404,'Registro no encontrado en tu sesión.');return {...JSON.parse(row.data),version:row.version};}
 async function list(db,s,kind){const {results}=await stmt(db,'SELECT data,version FROM demo_records WHERE workspace=? AND kind=? ORDER BY rowid DESC LIMIT 500',s.workspace,kind).all();return results.map(r=>({...JSON.parse(r.data),version:r.version}));}
-function requireRole(s,allowed){if(!allowed.includes(s.role))fail(403,'Tu perfil no tiene permiso para esta acción.');}
 async function limit(db,s,kind,max=300){const row=await stmt(db,'SELECT count(*) AS n FROM demo_records WHERE workspace=? AND kind=?',s.workspace,kind).first();if(row.n>=max)fail(409,'Límite de esta sesión demo alcanzado. Inicia una sesión nueva.');}
 async function seed(db,s){
  const today=now().slice(0,10);
@@ -36,7 +62,10 @@ async function seed(db,s){
  const products=[{id:'pieza-demo-1',code:'DEMO-FRE-001',name:'Pastillas de freno · muestra',brand:'Marca demo',category:'Frenos',price:185000,cost:130000,tax:0,stock:12,min:4,location:'A-01-02',verified:false},{id:'pieza-demo-2',code:'DEMO-FIL-002',name:'Filtro de aceite · muestra',brand:'Marca demo',category:'Motor',price:45000,cost:28000,tax:0,stock:20,min:6,location:'A-02-01',verified:false},{id:'pieza-demo-3',code:'DEMO-SUS-003',name:'Amortiguador · muestra',brand:'Marca demo',category:'Suspensión',price:240000,cost:170000,tax:0,stock:0,min:2,location:'B-01-03',verified:false},{id:'pieza-demo-4',code:'DEMO-DIS-004',name:'Disco de freno · muestra',brand:'Marca demo',category:'Frenos',price:210000,cost:150000,tax:0,stock:5,min:2,location:'A-01-03',verified:false}];
  const offers=[{id:'oferta-demo-1',supplier:'Proveedor ficticio Alfa',code:'DEMO-SUS-003',name:'Amortiguador · muestra',brand:'Marca demo',stock:8,cost:170000,days:3,updated:today,source:'demostración',demo:true},{id:'oferta-demo-2',supplier:'Proveedor ficticio Beta',code:'DEMO-SUS-003',name:'Amortiguador · muestra',brand:'Marca demo',stock:4,cost:180000,days:2,updated:today,source:'demostración',demo:true}];
  const leads=[{id:'lead-demo-1',title:'Reposición de filtros · ejemplo',clientId:clients[0].id,stage:'cotizado',amount:450000,next:today,notes:'Seguimiento de prueba.'},{id:'lead-demo-2',title:'Amortiguadores sobre pedido · ejemplo',clientId:clients[1].id,stage:'nuevo',amount:480000,next:today,notes:'Confirmar compatibilidad y disponibilidad.'}];
- await db.batch([...clients.map(d=>insert(db,s,'clients',d)),...products.map(d=>insert(db,s,'products',d)),...offers.map(d=>insert(db,s,'offers',d)),...leads.map(d=>insert(db,s,'leads',d)),insert(db,s,'tasks',{id:'tarea-demo-1',title:'Revisar referencias antes de cotizar',due:today,done:false,notes:'Ejemplo de recordatorio.'}),log(db,s,'sesión demo creada',s.workspace)]);
+ const sampleQuote={id:'cotizacion-demo-1',type:'quote',number:'COT-DEMO-MUESTRA',status:'borrador',at:now(),client:{id:clients[0].id,name:clients[0].name,segment:clients[0].segment,email:clients[0].email},items:[{productId:products[0].id,code:products[0].code,name:products[0].name,qty:1,price:185000,discount:14800,taxRate:0,tax:0,net:170200,total:170200,cost:130000,fulfillment:'stock propio demo'}],subtotal:185000,discount:14800,tax:0,total:170200,notes:'Ejemplo ficticio para probar el recorrido por función.',demo:true};
+ const sampleOrder={...sampleQuote,id:'pedido-demo-1',type:'order',number:'PED-DEMO-MUESTRA',source:sampleQuote.id,status:'pendiente'};
+ const samplePurchase={id:'compra-demo-1',number:'COM-DEMO-MUESTRA',productId:products[2].id,offerId:offers[0].id,code:products[2].code,name:products[2].name,supplier:offers[0].supplier,qty:2,cost:170000,total:340000,status:'borrador',at:now(),demo:true};
+ await db.batch([...clients.map(d=>insert(db,s,'clients',d)),...products.map(d=>insert(db,s,'products',d)),...offers.map(d=>insert(db,s,'offers',d)),...leads.map(d=>insert(db,s,'leads',d)),insert(db,s,'documents',sampleQuote),insert(db,s,'documents',sampleOrder),insert(db,s,'purchases',samplePurchase),insert(db,s,'tasks',{id:'tarea-demo-1',title:'Revisar referencias antes de cotizar',due:today,done:false,notes:'Ejemplo de recordatorio.'}),log(db,s,'sesión demo creada',s.workspace)]);
 }
 async function authenticate(request,db){
  const cookie=request.headers.get('Cookie')||'';const raw=cookie.match(/(?:^|;\s*)tr_demo=([a-zA-Z0-9-]+)/)?.[1];if(!raw)fail(401,'Inicia sesión para abrir el panel.');
@@ -55,7 +84,7 @@ function date(v){if(v==='')return '';const parsed=typeof v==='string'?new Date(v
 const successfulLog=(db,s,event,id)=>stmt(db,'INSERT INTO demo_records(workspace,kind,id,data) SELECT ?,?,?,? WHERE changes()=1',s.workspace,'audit',uid(),JSON.stringify({event,record:id,role:s.role,at:now()}));
 async function update(db,s,kind,id,version,data,event){integer(version,1);const result=await db.batch([stmt(db,'UPDATE demo_records SET data=?,version=version+1 WHERE workspace=? AND kind=? AND id=? AND version=?',JSON.stringify(data),s.workspace,kind,id,version),successfulLog(db,s,event,id)]);if(result[0].meta.changes!==1)fail(409,'El registro cambió. Actualiza el panel antes de guardar.');return {...data,version:version+1};}
 async function quote(db,s,b){
- requireRole(s,['admin','vendedor']);await limit(db,s,'documents');const client=await find(db,s,'clients',b.clientId);
+ requirePermission(s,'quote.write');await limit(db,s,'documents');const client=await find(db,s,'clients',b.clientId);
  if(!Array.isArray(b.items)||!b.items.length||b.items.length>30)fail(400,'Añade entre 1 y 30 líneas.');const seen=new Set(),items=[];
  for(const item of b.items){const id=text(item.productId,80);if(seen.has(id))fail(400,'Repite la cantidad, no la misma pieza.');seen.add(id);const p=await find(db,s,'products',id);const qty=integer(item.qty,1,999);const price=p.price;const base=price*qty;const discount=Math.round(base*client.discount/100);const net=base-discount;const tax=Math.round(net*p.tax/100);items.push({productId:id,code:p.code,name:p.name,qty,price,discount,taxRate:p.tax,tax,net,total:net+tax,cost:p.cost,fulfillment:p.stock>=qty?'stock propio demo':'sobre pedido demo'});}
  const subtotal=items.reduce((a,i)=>a+i.price*i.qty,0),discount=items.reduce((a,i)=>a+i.discount,0),tax=items.reduce((a,i)=>a+i.tax,0),total=subtotal-discount+tax;integer(total,1,1000000000);
@@ -63,7 +92,7 @@ async function quote(db,s,b){
  await db.batch([insert(db,s,'documents',d),log(db,s,'cotización creada',d.id)]);return d;
 }
 async function convert(db,s,b){
- requireRole(s,['admin','vendedor']);await limit(db,s,'documents');const old=await find(db,s,'documents',b.source);const type=b.type;
+ const type=b.type;if(!['order','invoice'].includes(type))fail(400,'Tipo de conversión inválido.');requirePermission(s,type==='order'?'order.write':'invoice.write');await limit(db,s,'documents');const old=await find(db,s,'documents',b.source);
  if(!((old.type==='quote'&&type==='order')||(old.type==='order'&&type==='invoice'))||old.status==='cancelado')fail(409,'Conversión no permitida.');
  const d={...old,id:uid(),source:old.id,type,number:(type==='order'?'PED':'FAC')+'-DEMO-'+uid().slice(0,8).toUpperCase(),status:type==='order'?'pendiente':'emitido',at:now()};delete d.version;
  if(type==='order'){const results=await db.batch([insert(db,s,'documents',d),log(db,s,'pedido creado',d.id)]);return d;}
@@ -77,6 +106,7 @@ async function convert(db,s,b){
 async function api(request,env){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(path==='/api/health'&&method==='GET')return json({service:'TOYORENAULT',mode:'demo',database:!!env.DB,assistant:!!env.AI,epc:'illustrative',supplierLive:false,electronicInvoicing:false});
+ if(path==='/api/profiles'&&method==='GET')return json({demo:true,profiles:Object.keys(roles).map(profile),capabilities:Object.fromEntries(Object.entries(capabilities).map(([id,c])=>[id,c.label])),modules:Object.fromEntries(Object.entries(modules).map(([id,m])=>[id,m.label]))});
  if(!env.DB)fail(503,'El panel necesita su base de demostración conectada.');await setup(env.DB);const db=env.DB;
  if(method!=='GET'&&method!=='HEAD'){if(request.headers.get('Origin')!==url.origin)fail(403,'Origen de solicitud no permitido.');}
  if(path==='/api/assistant'&&method==='POST'){
@@ -99,52 +129,56 @@ async function api(request,env){
    const b=await body(request);const username=text(b.username,40).toLowerCase();const password=text(b.password,100);
    const key=await digest((request.headers.get('CF-Connecting-IP')||'local')+Math.floor(Date.now()/600000));
    await stmt(db,'INSERT INTO demo_login_attempts(key,count,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1',key,Date.now()+600000).run();const attempts=await stmt(db,'SELECT count FROM demo_login_attempts WHERE key=?',key).first();if(attempts.count>20)fail(429,'Demasiados intentos. Espera diez minutos.');
-   if(!Object.hasOwn(roles,username)||password!=='demo123')fail(401,'Usa admin, vendedor o bodega con la clave demo123.');
+   if(!Object.hasOwn(roles,username)||password!=='demo123')fail(401,'Selecciona un perfil de demostración y usa la clave demo123.');
    await db.batch([stmt(db,'DELETE FROM demo_sessions WHERE expires<?',Date.now()),stmt(db,'DELETE FROM demo_login_attempts WHERE expires<?',Date.now())]);
    const capacity=await db.prepare('SELECT count(*) AS n FROM demo_sessions').first();if(capacity.n>=500)fail(503,'El entorno demo está ocupado. Intenta más tarde.');
    const raw=uid()+uid(),s={token:await digest(raw),workspace:uid(),role:username,csrf:uid(),expires:Date.now()+7200000};
    await stmt(db,'INSERT INTO demo_sessions VALUES(?,?,?,?,?)',s.token,s.workspace,s.role,s.csrf,s.expires).run();await seed(db,s);
-   return json({user:roles[s.role],role:s.role,csrf:s.csrf,expires:s.expires,demo:true},200,{'Set-Cookie':`tr_demo=${raw}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=7200`});
+   return json({...profile(s.role),csrf:s.csrf,expires:s.expires,demo:true},200,{'Set-Cookie':`tr_demo=${raw}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=7200`});
  }
  const s=await authenticate(request,db);
  if(method!=='GET'&&request.headers.get('X-CSRF-Token')!==s.csrf)fail(403,'La sesión debe renovarse antes de guardar.');
- if(path==='/api/me'&&method==='GET')return json({user:roles[s.role],role:s.role,csrf:s.csrf,expires:s.expires,demo:true});
+ if(path==='/api/me'&&method==='GET')return json({...profile(s.role),csrf:s.csrf,expires:s.expires,demo:true});
  if(path==='/api/logout'&&method==='POST'){// expire, then cascade-purge on a future login; no real records are touched
    await stmt(db,'UPDATE demo_sessions SET expires=0 WHERE token=?',s.token).run();return json({ok:true},200,{'Set-Cookie':'tr_demo=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'});
  }
  if(path==='/api/state'&&method==='GET'){
-   const data={};for(const kind of [...kinds,'audit'])data[kind]=await list(db,s,kind);
-   if(s.role==='bodega'){data.clients=data.clients.map(c=>({id:c.id,name:c.name,segment:c.segment}));data.leads=[];data.tasks=[];data.documents=data.documents.filter(d=>d.type==='order');}
-   if(s.role==='vendedor'){data.products=data.products.map(({cost,...p})=>p);data.offers=data.offers.map(({cost,...p})=>p);data.purchases=[];data.audit=[];data.documents=data.documents.map(d=>({...d,items:d.items.map(({cost,...i})=>i)}));}
+   const visibility={clients:'crm',leads:'crm',products:'stock',offers:'suppliers',documents:'documents',purchases:'purchases',tasks:'tasks',returns:'returns',audit:'audit'};
+   const data={};for(const kind of [...kinds,'audit'])data[kind]=hasModule(s,visibility[kind])?await list(db,s,kind):[];
+   data.products=data.products.map(p=>visibleProduct(s,p));
+   if(s.role==='bodega')data.documents=data.documents.filter(d=>d.type==='order');
+   data.documents=data.documents.map(d=>visibleDocument(s,d));
+   if(!allowed(s,'cost.read'))data.offers=data.offers.map(({cost,...p})=>p);
+   data.purchases=data.purchases.map(p=>visiblePurchase(s,p));
    return json(data);
  }
  if(path==='/api/records'&&method==='POST'){
-   const b=await body(request),kind=b.kind;requireRole(s,kind==='products'?['admin','bodega']:['admin','vendedor']);if(!['clients','leads','products','tasks'].includes(kind))fail(400,'Registro inválido.');await limit(db,s,kind);
+   const b=await body(request),kind=b.kind;if(!['clients','leads','products','tasks'].includes(kind))fail(400,'Registro inválido.');requirePermission(s,kind==='products'?'catalog.write':kind==='tasks'?'task.write':'crm.write');await limit(db,s,kind);
    const d=validate(kind,b.data||{});if(kind==='leads')await find(db,s,'clients',d.clientId);await db.batch([insert(db,s,kind,d),log(db,s,kind+' creado',d.id)]);return json(d,201);
  }
  if(path==='/api/records'&&method==='PATCH'){
-   const b=await body(request),kind=b.kind;requireRole(s,['admin','vendedor']);if(!['clients','leads','tasks'].includes(kind))fail(400,'Edición no permitida.');const old=await find(db,s,kind,b.id);const d=validate(kind,{...old,...b.data});d.id=old.id;d.created=old.created||now();if(kind==='leads')await find(db,s,'clients',d.clientId);return json(await update(db,s,kind,old.id,b.version,d,kind+' actualizado'));
+   const b=await body(request),kind=b.kind;if(!['clients','leads','tasks'].includes(kind))fail(400,'Edición no permitida.');requirePermission(s,kind==='tasks'?'task.write':'crm.write');const old=await find(db,s,kind,b.id);const d=validate(kind,{...old,...b.data});d.id=old.id;d.created=old.created||now();if(kind==='leads')await find(db,s,'clients',d.clientId);return json(await update(db,s,kind,old.id,b.version,d,kind+' actualizado'));
  }
  if(path==='/api/stock'&&method==='POST'){
-   requireRole(s,['admin','bodega']);const b=await body(request),p=await find(db,s,'products',b.id);const delta=integer(b.delta,-99999,99999);if(!delta)fail(400,'Indica una variación de stock.');const reason=text(b.reason,150);const stock=integer(p.stock+delta,0,99999);return json(await update(db,s,'products',p.id,b.version,{...p,stock},'ajuste stock: '+reason));
+   requirePermission(s,'stock.write');const b=await body(request),p=await find(db,s,'products',b.id);const delta=integer(b.delta,-99999,99999);if(!delta)fail(400,'Indica una variación de stock.');const reason=text(b.reason,150);const stock=integer(p.stock+delta,0,99999);return json(visibleProduct(s,await update(db,s,'products',p.id,b.version,{...p,stock},'ajuste stock: '+reason)));
  }
- if(path==='/api/quotes'&&method==='POST'){const d=await quote(db,s,await body(request));return json(s.role==='vendedor'?{...d,items:d.items.map(({cost,...i})=>i)}:d,201);}
- if(path==='/api/convert'&&method==='POST'){const d=await convert(db,s,await body(request));return json(s.role==='vendedor'?{...d,items:d.items.map(({cost,...i})=>i)}:d,201);}
+ if(path==='/api/quotes'&&method==='POST'){const d=await quote(db,s,await body(request));return json(visibleDocument(s,d),201);}
+ if(path==='/api/convert'&&method==='POST'){const d=await convert(db,s,await body(request));return json(visibleDocument(s,d),201);}
  if(path==='/api/purchases'&&method==='POST'){
-   requireRole(s,['admin','bodega']);await limit(db,s,'purchases');const b=await body(request),p=await find(db,s,'products',b.productId);const offer=await find(db,s,'offers',b.offerId);if(p.code!==offer.code)fail(400,'La oferta no corresponde a la referencia.');const qty=integer(b.qty,1,999);if(offer.stock===null||offer.cost===null)fail(409,'Confirma precio y disponibilidad antes de preparar la compra.');if(qty>offer.stock)fail(409,'Cantidad superior al stock informado; solicita confirmación.');
+   requirePermission(s,'purchase.write');await limit(db,s,'purchases');const b=await body(request),p=await find(db,s,'products',b.productId);const offer=await find(db,s,'offers',b.offerId);if(p.code!==offer.code)fail(400,'La oferta no corresponde a la referencia.');const qty=integer(b.qty,1,999);if(offer.stock===null||offer.cost===null)fail(409,'Confirma precio y disponibilidad antes de preparar la compra.');if(qty>offer.stock)fail(409,'Cantidad superior al stock informado; solicita confirmación.');
    const d={id:uid(),number:'COM-DEMO-'+uid().slice(0,8).toUpperCase(),productId:p.id,offerId:offer.id,code:p.code,name:p.name,supplier:offer.supplier,qty,cost:offer.cost,total:offer.cost*qty,status:'borrador',at:now(),demo:true};await db.batch([insert(db,s,'purchases',d),log(db,s,'compra demo preparada; no enviada',d.id)]);return json(d,201);
  }
  if(path==='/api/receive'&&method==='POST'){
-   requireRole(s,['admin','bodega']);const b=await body(request),p=await find(db,s,'purchases',b.id);if(p.status!=='borrador')fail(409,'La compra ya fue recibida.');const product=await find(db,s,'products',p.productId);integer(product.stock+p.qty,0,99999);
+   requirePermission(s,'receipt.write');const b=await body(request),p=await find(db,s,'purchases',b.id);if(p.status!=='borrador')fail(409,'La compra ya fue recibida.');const product=await find(db,s,'products',p.productId);integer(product.stock+p.qty,0,99999);
    const result=await db.batch([stmt(db,"UPDATE demo_records SET data=json_set(data,'$.status','recibido','$.received',?),version=version+1 WHERE workspace=? AND kind='purchases' AND id=? AND version=? AND json_extract(data,'$.status')='borrador'",now(),s.workspace,p.id,integer(b.version,1)),stmt(db,"UPDATE demo_records SET data=json_set(data,'$.stock',CAST(json_extract(data,'$.stock') AS INTEGER)+?),version=version+1 WHERE workspace=? AND kind='products' AND id=? AND changes()=1",p.qty,s.workspace,product.id),successfulLog(db,s,'recepción demo',p.id)]);if(result[0].meta.changes!==1)fail(409,'La compra cambió; actualiza el panel.');return json({ok:true});
  }
  if(path==='/api/offers/import'&&method==='POST'){
-   requireRole(s,['admin']);const b=await body(request);if(!Array.isArray(b.rows)||!b.rows.length||b.rows.length>200)fail(400,'Importa entre 1 y 200 referencias por sesión demo.');await limit(db,s,'offers',201);
+   requirePermission(s,'offers.write');const b=await body(request);if(!Array.isArray(b.rows)||!b.rows.length||b.rows.length>200)fail(400,'Importa entre 1 y 200 referencias por sesión demo.');await limit(db,s,'offers',201);
    const seen=new Set(),rows=b.rows.map(row=>{const d={id:uid(),supplier:text(row.proveedor,100),code:text(row.referencia,100),name:text(row.nombre,150),brand:text(row.marca,80),stock:row.stock_proveedor===null?null:integer(row.stock_proveedor,0,99999),cost:row.precio_cop===null?null:integer(row.precio_cop),days:row.plazo_dias===null?null:integer(row.plazo_dias,0,365),updated:date(row.actualizado),source:'CSV de prueba',demo:true};if(d.updated>now().slice(0,10))fail(400,'Fecha de actualización futura.');const key=d.supplier.toLowerCase()+'|'+d.code.toLowerCase();if(seen.has(key))fail(400,'Referencia duplicada para un proveedor.');seen.add(key);return d;});
    await db.batch([stmt(db,"DELETE FROM demo_records WHERE workspace=? AND kind='offers'",s.workspace),...rows.map(d=>insert(db,s,'offers',d)),log(db,s,'portafolio CSV demo reemplazado',String(rows.length))]);return json({imported:rows.length});
  }
  if(path==='/api/returns'&&method==='POST'){
-   requireRole(s,['admin']);await limit(db,s,'returns');const b=await body(request),invoice=await find(db,s,'documents',b.invoiceId);if(invoice.type!=='invoice')fail(400,'Selecciona un documento interno emitido.');const item=invoice.items.find(i=>i.productId===b.productId);if(!item)fail(400,'Pieza no encontrada en el documento.');const prior=await list(db,s,'returns'),qty=integer(b.qty,1,item.qty);if(prior.filter(r=>r.invoiceId===invoice.id&&r.productId===item.productId).reduce((sum,r)=>sum+r.qty,0)+qty>item.qty)fail(409,'No puedes devolver más unidades de las vendidas.');
+   requirePermission(s,'return.write');await limit(db,s,'returns');const b=await body(request),invoice=await find(db,s,'documents',b.invoiceId);if(invoice.type!=='invoice')fail(400,'Selecciona un documento interno emitido.');const item=invoice.items.find(i=>i.productId===b.productId);if(!item)fail(400,'Pieza no encontrada en el documento.');const prior=await list(db,s,'returns'),qty=integer(b.qty,1,item.qty);if(prior.filter(r=>r.invoiceId===invoice.id&&r.productId===item.productId).reduce((sum,r)=>sum+r.qty,0)+qty>item.qty)fail(409,'No puedes devolver más unidades de las vendidas.');
    const product=await find(db,s,'products',item.productId);integer(product.stock+qty,0,99999);const d={id:uid(),invoiceId:invoice.id,productId:item.productId,qty,reason:text(b.reason,200),at:now(),status:'registrado',demo:true};
    const result=await db.batch([stmt(db,"INSERT INTO demo_records(workspace,kind,id,data) SELECT ?,?,?,? WHERE COALESCE((SELECT sum(CAST(json_extract(data,'$.qty') AS INTEGER)) FROM demo_records WHERE workspace=? AND kind='returns' AND json_extract(data,'$.invoiceId')=? AND json_extract(data,'$.productId')=?),0)+?<=?",s.workspace,'returns',d.id,JSON.stringify(d),s.workspace,invoice.id,item.productId,qty,item.qty),stmt(db,"UPDATE demo_records SET data=json_set(data,'$.stock',CAST(json_extract(data,'$.stock') AS INTEGER)+?),version=version+1 WHERE workspace=? AND kind='products' AND id=? AND changes()=1",qty,s.workspace,item.productId),successfulLog(db,s,'devolución demo registrada; sin nota DIAN',d.id)]);if(result[0].meta.changes!==1)fail(409,'La devolución supera las unidades vendidas.');return json(d,201);
  }
