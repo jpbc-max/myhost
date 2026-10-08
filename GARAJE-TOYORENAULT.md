@@ -23,7 +23,7 @@ Fuentes oficiales: https://vpic.nhtsa.dot.gov/api/Home/Index y https://vpic.nhts
 
 ## Identidad y contactos
 
-Los emblemas de Toyota, Renault, Chevrolet, Nissan, Mazda, Kia, Hyundai, Ford y Volkswagen usan los mismos SVG servidos por la web de CJD. Tienen movimiento suave, pausa y respeto a la preferencia de movimiento reducido. Dependencia externa: si CJD retira esos archivos, deben alojarse copias autorizadas.
+Los emblemas de Toyota, Renault, Chevrolet, Nissan, Mazda, Kia, Hyundai, Ford y Volkswagen son copias locales de los mismos SVG de CJD. Tienen movimiento suave, pausa y respeto a la preferencia de movimiento reducido. TOYORENAULT los aloja en Cloudflare; no depende de ChatGPT para cargarlos. Mi espacio enlaza al sitio CJD independiente https://cjd-autoxpress.prb1.workers.dev/panel. Accesos rápidos y guía de cinco pasos funcionan dentro de la propia web.
 
 WhatsApp/teléfono +57 316 692 6322; Calle 2 # 4-67, Centro, Neiva, Huila. Lunes a viernes 8:00–18:00; sábados 8:00–14:00; domingos cerrado; confirmar festivos. TikTok @toyorenault.gr.ne. Correo toyorenaultgr2009@hotmail.com. Instagram y Facebook pendientes de confirmar para evitar enlazar empresas homónimas.
 

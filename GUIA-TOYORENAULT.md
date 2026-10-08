@@ -33,7 +33,7 @@ El cliente puede crear una cuenta individual y conservar sus vehículos en el se
 - Inicio «Pon tu placa», emblemas reales del mismo conjunto de CJD con movimiento y pausa, identidad dorada/blanca/negra y diseño móvil.
 - Contactos de TOYORENAULT GR Neiva: WhatsApp, teléfono, dirección, horario, mapa, TikTok, correo y descarga de tarjeta de contacto. Instagram/Facebook pendientes de confirmar.
 - ToyoBot animado con guía local y clasificación opcional mediante Workers AI. La IA interpreta la intención; los datos y enlaces se producen a partir de reglas y fuentes de la web. No se envían registros del panel ni documentos al modelo. Identificadores evidentes permanecen locales. Tiene límites de 10 consultas por IP/hora y 50 para la aplicación/día; usa la guía local si se alcanza el límite o falla la IA.
-- Emblema circular TR propio y acceso `/espacio.html` a TOYORENAULT y CJD. La identidad visual se coordina; los negocios y sesiones son independientes.
+- Emblema circular TR propio versión v7 con T completa; emblemas de marcas y logo CJD alojados localmente. Accesos rápidos y guía de cinco pasos. `/espacio.html` reúne TOYORENAULT y el sitio CJD independiente en https://cjd-autoxpress.prb1.workers.dev/panel, sin depender de sesión ChatGPT. Los negocios y sesiones son independientes.
 
 ## Integraciones pendientes para operar una empresa real
 
